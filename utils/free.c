@@ -1,5 +1,18 @@
 #include "../minishell.h"
 
+void	free_redirs(t_redir *redir)
+{
+	t_redir	*tmp;
+
+	while (redir)
+	{
+		tmp = redir;
+		redir = redir->next;
+		free(tmp->target);
+		free(tmp);
+	}
+}
+
 void	free_tokens(t_token *head)
 {
 	t_token	*tmp;
@@ -29,35 +42,17 @@ void	free_cmd_(t_cmd *cmd)
 		}
 		free(cmd->args);
 	}
-	if (cmd->outfile)
-		free(cmd->outfile);
-	if (cmd->infile)
-		free(cmd->infile);
+	free_redirs(cmd->redirs);
 	free(cmd);
 }
 
 void	free_ast(t_node *node)
 {
-	int	i;
-
-	i = 0;
 	if (!node)
 		return ;
 	free_ast(node->left);
 	free_ast(node->right);
 	if (node->cmd)
-	{
-		if (node->cmd->args)
-		{
-			while (node->cmd->args[i])
-				free(node->cmd->args[i++]);
-			free(node->cmd->args);
-		}
-		if (node->cmd->infile)
-			free(node->cmd->infile);
-		if (node->cmd->outfile)
-			free(node->cmd->outfile);
-		free(node->cmd);
-	}
+		free_cmd_(node->cmd);
 	free(node);
 }

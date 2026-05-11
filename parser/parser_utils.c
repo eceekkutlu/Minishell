@@ -2,7 +2,7 @@
 
 int	is_redirection(int type)
 {
-	return (type == REDIR_IN || type == REDIR_OUT || type == APPEND);
+	return (type == REDIR_IN || type == REDIR_OUT || type == APPEND || type == HEREDOC);
 }
 
 int	check_parser(t_token *t)
@@ -56,9 +56,8 @@ t_cmd	*create_cmd(void)
 	if (!cmd)
 		return (NULL);
 	cmd->args = NULL;
-	cmd->infile = NULL;
-	cmd->outfile = NULL;
-	cmd->append = 0;
+	cmd->redirs = NULL;
+	cmd->heredoc_fd = -1;
 	cmd->next = NULL;
 	return (cmd);
 }
@@ -66,7 +65,7 @@ t_cmd	*create_cmd(void)
 t_token	*go_end(t_token *t)
 {
 	if (!t)
-		return NULL;
+		return (NULL);
 	while (t && t->next)
 		t = t->next;
 	return (t);
@@ -78,7 +77,7 @@ t_token	*find_right_pipe(t_token *t)
 	t_token	*right;
 
 	if (!t)
-		return NULL;
+		return (NULL);
 	tmp = go_end(t);
 	while (tmp)
 	{

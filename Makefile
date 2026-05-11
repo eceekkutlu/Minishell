@@ -6,6 +6,7 @@ SRCS    = main.c \
           tokenizer/token_helper.c \
           tokenizer/token_control.c \
           parser/parser.c \
+          parser/parser_redir.c \
           parser/parser_utils.c \
           expand/expand.c \
           expand/expand_utils.c \

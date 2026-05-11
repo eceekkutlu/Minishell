@@ -8,7 +8,13 @@ void	have_expand(t_token *t)
 	temp = t;
 	while (temp)
 	{
-		if (!temp->value || temp->quoted == 1)
+		if (!temp->value || temp->type != WORD)
+		{
+			temp = temp->next;
+			continue ;
+		}
+		/* Heredoc delimiter'ı normal kelime gibi genişletmiyoruz. */
+		if (temp->prev && temp->prev->type == HEREDOC)
 		{
 			temp = temp->next;
 			continue ;

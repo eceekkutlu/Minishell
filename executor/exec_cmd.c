@@ -1,5 +1,84 @@
 #include "../minishell.h"
 
+static void	free_path_list(char **paths)
+{
+	int	i;
+
+	i = 0;
+	if (!paths)
+		return ;
+	while (paths[i])
+	{
+		free(paths[i]);
+		i++;
+	}
+	free(paths);
+}
+
+static char	*join_path(char *left, char *right)
+{
+	char	*full_path;
+	size_t	left_len;
+	size_t	right_len;
+
+	left_len = strlen(left);
+	right_len = strlen(right);
+	full_path = malloc(left_len + right_len + 2);
+	if (!full_path)
+		return (NULL);
+	memcpy(full_path, left, left_len);
+	full_path[left_len] = '/';
+	memcpy(full_path + left_len + 1, right, right_len);
+	full_path[left_len + right_len + 1] = '\0';
+	return (full_path);
+}
+
+static char	**split_path_dirs(char *path_line)
+{
+	char	**paths;
+	int		count;
+	int		i;
+	int		start;
+	int		index;
+	int		len;
+
+	count = 1;
+	i = 0;
+	while (path_line[i])
+	{
+		if (path_line[i] == ':')
+			count++;
+		i++;
+	}
+	paths = calloc(count + 1, sizeof(char *));
+	if (!paths)
+		return (NULL);
+	start = 0;
+	index = 0;
+	i = 0;
+	while (1)
+	{
+		if (path_line[i] == ':' || path_line[i] == '\0')
+		{
+			len = i - start;
+			paths[index] = malloc(len + 1);
+			if (!paths[index])
+			{
+				free_path_list(paths);
+				return (NULL);
+			}
+			memcpy(paths[index], path_line + start, len);
+			paths[index][len] = '\0';
+			index++;
+			if (path_line[i] == '\0')
+				break ;
+			start = i + 1;
+		}
+		i++;
+	}
+	return (paths);
+}
+
 char	**get_path_dirs(char **envp)
 {
 	int		i;
@@ -12,12 +91,12 @@ char	**get_path_dirs(char **envp)
 		return (NULL);
 	while (envp[i])
 	{
-		if (!ft_strncmp(envp[i], "PATH=", 5))
+		if (!strncmp(envp[i], "PATH=", 5))
 		{
 			/* "PATH=" kısmını atlayıp sadece gerçek dizin listesini alıyoruz. */
 			path_line = envp[i] + 5;
 			/* Dizinleri ':' ile ayırıp dizi halinde geri dönüyoruz. */
-			return (ft_split(path_line, ':'));
+			return (split_path_dirs(path_line));
 		}
 		i++;
 	}
@@ -27,16 +106,10 @@ char	**get_path_dirs(char **envp)
 
 char	*join_cmd_path(char *dir, char *cmd)
 {
-	char	*tmp;
 	char	*full_path;
 
-	/* Önce "dizin/" kısmını oluşturuyoruz. */
-	tmp = ft_strjoin(dir, "/");
-	if (!tmp)
-		return (NULL);
-	/* Sonra komut adını ekleyip tam aday yolu üretiyoruz: /bin/ls gibi. */
-	full_path = ft_strjoin(tmp, cmd);
-	free(tmp);
+	/* Dizin ile komut adını tek bir PATH adayına çeviriyoruz. */
+	full_path = join_path(dir, cmd);
 	return (full_path);
 }
 
@@ -76,11 +149,11 @@ char	*find_cmd_path(char *cmd, char **envp)
 	if (!cmd || !cmd[0])
 		return (NULL);
 	/* Komut içinde '/' varsa PATH araması yapmayız; kullanıcı zaten bir yol vermiştir. */
-	if (ft_strchr(cmd, '/'))
+	if (strchr(cmd, '/'))
 	{
 		/* Verilen yol gerçekten çalıştırılabiliyorsa aynen kopyasını döndürüyoruz. */
 		if (access(cmd, X_OK) == 0)
-			return (ft_strdup(cmd));
+			return (strdup(cmd));
 		/* Yol var ama çalıştırılamıyorsa NULL dönüyoruz. */
 		return (NULL);
 	}
@@ -91,21 +164,23 @@ char	*find_cmd_path(char *cmd, char **envp)
 	/* PATH dizinlerini gezip komutu bulmaya çalışıyoruz. */
 	cmd_path = find_cmd_in_path(paths, cmd);
 	/* Split ile ayrılan PATH dizilerini serbest bırakıyoruz. */
-	free_split(paths);
+	free_path_list(paths);
 	/* Bulunan tam yolu, ya da bulunamadıysa NULL'u geri veriyoruz. */
 	return (cmd_path);
 }
-int	exec_cmd(t_cmd_node *node, t_shell *shell)
+
+int	exec_cmd(t_cmd *cmd, char **envp)
 {
 	pid_t	pid;
 	char	*cmd_path;
+	int		status;
 
-	if (!node || !node->args || !node->args[0])
+	if (!cmd || !cmd->args || !cmd->args[0])
 		return (0);
-	cmd_path = find_cmd_path(node->args[0], shell->envp);
+	cmd_path = find_cmd_path(cmd->args[0], envp);
 	if (!cmd_path)
 	{
-		printf("%s: command not found\n", node->args[0]);
+		printf("%s: command not found\n", cmd->args[0]);
 		return (127);
 	}
 	pid = fork();
@@ -117,18 +192,14 @@ int	exec_cmd(t_cmd_node *node, t_shell *shell)
 	}
 	if (pid == 0)
 	{
-		
+		execve(cmd_path, cmd->args, envp);
+		perror("execve");
+		free(cmd_path);
+		exit(126);
 	}
-    else
-    {
-
-    }
-	return (0);
+	waitpid(pid, &status, 0);
+	free(cmd_path);
+	if (WIFEXITED(status))
+		return (WEXITSTATUS(status));
+	return (1);
 }
-int exec_process(t_cmd_node *node, t_shell *shell)
-// child ile komutu çalıştırmamız lazım 
-// childın nasıl yazıldığını hatırlamıyorum 
-//execve()ile childı çalıştırıyorduk 
-//execve("/bin/ls", args, envp);
-//execve çalıştığında program bu fd ' lere yazar okur 
-// Biz fd lerin nereye baktığını değiştireceğiz

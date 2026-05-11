@@ -28,16 +28,12 @@ int	main(int ac, char **av, char **envp)
 		have_expand(tokens);
 		ast = parse(tokens);
 		if (!ast)
-		{
-			free_tokens(tokens);
 			continue ;
-		}
 		printf("\n=== AST ===\n");
 		print_ast(ast, 0);
 		printf("\n");
 		// TODO: execute(ast);
 		free_ast(ast);
-		free_tokens(tokens);
 	}
 	return (0);
 }

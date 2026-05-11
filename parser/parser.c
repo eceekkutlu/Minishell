@@ -1,17 +1,46 @@
-<<<<<<< HEAD
 #include "../minishell.h"
 
 int	is_op(t_type type)
 {
-	return (type == PIPE || type == REDIR_IN || 
-		type == REDIR_OUT || type == APPEND || type == HEREDOC);
+	return (type == PIPE || type == REDIR_IN || type == REDIR_OUT || type == APPEND || type == HEREDOC);
 }
 
-t_node	*parse(t_token *t)
+static t_node	*parse_rec(t_token *t)
 {
 	t_token	*right;
 	t_node	*node;
 
+	right = find_right_pipe(t);
+	if (!right)
+		return (create_node_cmd(t));
+	node = malloc(sizeof(t_node));
+	if (!node)
+	{
+		free_tokens(t);
+		free_tokens(right);
+		return (NULL);
+	}
+	node->type = LEAF_PIPE;
+	node->cmd = NULL;
+	node->left = parse_rec(t);
+	node->right = parse_rec(right);
+	if (!node->left)
+	{
+		free_ast(node->right);
+		free(node);
+		return (NULL);
+	}
+	if (!node->right)
+	{
+		free_ast(node->left);
+		free(node);
+		return (NULL);
+	}
+	return (node);
+}
+
+t_node	*parse(t_token *t)
+{
 	if (!t)
 		return (NULL);
 	if (check_parser(t))
@@ -19,22 +48,13 @@ t_node	*parse(t_token *t)
 		free_tokens(t);
 		return (NULL);
 	}
-	right = find_right_pipe(t);
-	if (!right)
-		return create_node_cmd(t);
-	node = malloc(sizeof(t_node));
-	if (!node)
-		return (NULL);
-	node->type = LEAF_PIPE;
-	node->cmd = NULL;
-	node->left = parse(t);
-	node->right = parse(right);
-	return (node);
+	return (parse_rec(t));
 }
 
-static t_node	*cmd_fail(t_node *node, t_cmd *cmd)
+static t_node	*cmd_fail(t_node *node, t_cmd *cmd, t_token *start)
 {
 	free_cmd_(cmd);
+	free_tokens(start);
 	free(node);
 	return (NULL);
 }
@@ -55,76 +75,46 @@ t_node	*create_node_cmd(t_token *t)
 {
 	t_node	*node;
 	t_cmd	*cmd;
+	t_token	*start;
 	int		count;
 	int		i;
 
+	start = t;
 	node = malloc(sizeof(t_node));
 	if (!node)
+	{
+		free_tokens(start);
 		return (NULL);
+	}
 	node->type = LEAD_CMD;
 	node->left = NULL;
 	node->right = NULL;
 	node->cmd = NULL;
-
 	cmd = create_cmd();
 	if (!cmd)
 	{
 		free(node);
+		free_tokens(start);
 		return (NULL);
 	}
 	count = argc_counter(t);
 	cmd->args = calloc(count + 1, sizeof(char *));
 	if (!cmd->args)
-		return (cmd_fail(node, cmd));
+		return (cmd_fail(node, cmd, start));
 	i = 0;
 	while (t && t->type != PIPE)
 	{
 		if (t->type == WORD)
 		{
 			if (add_arg(cmd, t, &i))
-				return (cmd_fail(node, cmd));
+				return (cmd_fail(node, cmd, start));
 			t = t->next;
 		}
-		else if (t->type == REDIR_IN)
+		else if (is_redirection(t->type))
 		{
+			if (save_redirection(cmd, t))
+				return (cmd_fail(node, cmd, start));
 			t = t->next;
-			if (t && t->type == WORD)
-			{
-				if (cmd->infile)
-					free(cmd->infile);
-				cmd->infile = strdup(t->value);
-				if (!cmd->infile)
-					return (cmd_fail(node, cmd));
-			}
-			if (t)
-				t = t->next;
-		}
-		else if (t->type == REDIR_OUT || t->type == APPEND)
-		{
-			cmd->append = (t->type == APPEND);
-			t = t->next;
-			if (t && t->type == WORD)
-			{
-				if (cmd->outfile)
-					free(cmd->outfile);
-				cmd->outfile = strdup(t->value);
-				if (!cmd->outfile)
-					return (cmd_fail(node, cmd));
-			}
-			if (t)
-				t = t->next;
-		}
-		else if (t->type == HEREDOC)
-		{
-			t = t->next;
-			if (t && t->type == WORD)
-			{
-				if (cmd->infile)
-					free(cmd->infile);
-				cmd->infile = strdup(t->value);
-				if (!cmd->infile)
-					return (cmd_fail(node, cmd));
-			}
 			if (t)
 				t = t->next;
 		}
@@ -132,7 +122,25 @@ t_node	*create_node_cmd(t_token *t)
 			t = t->next;
 	}
 	node->cmd = cmd;
+	/* AST kendi kopyalarını tuttuğu için bu segment artık geçici veridir. */
+	free_tokens(start);
 	return (node);
+}
+
+static void	print_redirs(t_redir *redir)
+{
+	while (redir)
+	{
+		if (redir->type == REDIR_IN)
+			printf("< %s ", redir->target);
+		else if (redir->type == REDIR_OUT)
+			printf("> %s ", redir->target);
+		else if (redir->type == APPEND)
+			printf(">> %s ", redir->target);
+		else if (redir->type == HEREDOC)
+			printf("<< %s ", redir->target);
+		redir = redir->next;
+	}
 }
 
 void	print_ast(t_node *node, int depth)
@@ -140,7 +148,7 @@ void	print_ast(t_node *node, int depth)
 	int	i;
 
 	if (!node)
-		return;
+		return ;
 	for (i = 0; i < depth; i++)
 		printf("  ");
 	if (node->type == LEAF_PIPE)
@@ -161,64 +169,7 @@ void	print_ast(t_node *node, int depth)
 				i++;
 			}
 		}
-		if (node->cmd->infile)
-			printf("< %s ", node->cmd->infile);
-		if (node->cmd->outfile)
-			printf("%s %s", node->cmd->append ? ">>" : ">", node->cmd->outfile);
+		print_redirs(node->cmd->redirs);
 		printf("\n");
 	}
 }
-=======
-#include "../minishell.h"
-
-int	argc_counter(t_token *token)
-{
-	t_token	*head;
-	int		arg_count;
-
-	arg_count = 0;
-	head = token;
-	while (head && head->type != PIPE)
-	{
-		if (head->type == WORD)
-			arg_count++;
-		head = head->next;
-	}
-	return (arg_count);
-}
-
-// bu gereksiz olabilir emin değilim şu an 
-int	next_pipe_counter(t_token *token)
-{
-	t_token	*head;
-	int		next_counter;
-
-	head = token;
-	next_counter = 0;
-	while (head && head->type != PIPE)
-		head = head->next;
-	if (head && head->type == PIPE)
-		head = head->next;
-	while (head && head->type != PIPE)
-	{
-		if (head->type == WORD)
-			next_counter++;
-		head = head->next;
-	}
-	return (next_counter);
-}
-t_cmd *create_cmd(t_token **token)
-{
-    t_cmd *cmd;
-    cmd = malloc(sizeof(t_cmd));
-    if(!cmd)
-        return (NULL);
-    cmd -> args = NULL;
-    cmd -> infile = NULL;
-    cmd -> outfile = NULL;
-    cmd -> append = 0;
-    cmd -> next = NULL;
-
-    return (cmd);
-// tüm komut içinde olanları fonksiyonlar oluşturucam ve onlarla dolduracağım.
->>>>>>> 2942cb5a340d915b5b484187ee7906bb7554e94d
